@@ -30,7 +30,7 @@ calendar_id = os.getenv("CALENDER_ID")
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.WARNING
+    level=logging.INFO
 )
 
 # Tools
@@ -128,7 +128,10 @@ def reschedule_event(event_id: str, new_date: str, new_time: str, new_duration: 
         new_end_time = datetime.datetime.strptime(new_time, "%H:%M") + datetime.timedelta(minutes=new_duration)
 
         # Get the existing event to preserve its summary
-        existing_event = calendar_service.events().get(calendarId=calendar_id, eventId=event_id).execute()
+        try:
+            existing_event = calendar_service.events().get(calendarId=calendar_id, eventId=event_id).execute()
+        except Exception as e:
+            return f"Error: Could not find event with ID '{event_id}'. Error: {str(e)}"
         
         # Call Google Calendar API to reschedule an event
         calendar_service.events().update(calendarId=calendar_id, eventId=event_id, body={
@@ -138,17 +141,19 @@ def reschedule_event(event_id: str, new_date: str, new_time: str, new_duration: 
             }).execute()
         return f"Event '{existing_event.get('summary', 'Rescheduled Event')}' rescheduled to {new_date} at {new_time} for {new_duration} minutes"
     except Exception as e:
-        return f"Error rescheduling event: {e}"
+        print(f"Error rescheduling event: {str(e)}")
+        return f"Error rescheduling event: {str(e)}"
 
 instructions = f"""
                 You are a helpful calendar scheduler. You are given a event date and you need to check if the date is available. 
-                Use the tools to call Google Calendar API to check if the date is available on my calendar. 
-                ALWAYS call the get_current_date tool before calling the other tools.
+                Use all the tools to call Google Calendar API to check if the date is available on my calendar. 
+                
+                You should not be asking me for the date and time or eventId, you should be using the tools to get the date and time or eventId.
 
                 If it clashes with another event, you need to ask me if I would like to schedule it on a different date or change the current date or just add it to the calendar.
 
                 Tools:
-                - get_current_date: Get the current date and time in Singapore
+                - get_current_date: Get the current date and time
                 - get_events: Get all events from the calendar to ensure that the date is available before adding/deleting/rescheduling events
                 - add_event: Add a new event to the calendar
                 - remove_event: Remove an event from the calendar
@@ -182,8 +187,12 @@ async def schedule_event(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Generate response with tools
         response = model_with_tools.invoke(context.user_data['messages'])
         
+        
         # Handle tool calls if present
         while response.tool_calls:
+            # Show tool calls
+            print(response.tool_calls)
+            
             # Add AI message with tool calls to history
             context.user_data['messages'].append(response)
             
@@ -213,7 +222,7 @@ async def schedule_event(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
                 if tool_result is None:
                     tool_result = f"Unknown tool: {tool_name}"
-                
+                print(tool_result)
                 # Add tool result to messages
                 context.user_data['messages'].append(
                     ToolMessage(content=str(tool_result), tool_call_id=tool_call['id'])
