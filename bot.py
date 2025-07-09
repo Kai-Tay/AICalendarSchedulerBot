@@ -70,7 +70,7 @@ def get_events():
             return "No upcoming events found."
     except Exception as e:
         print(f"Error getting events: {e}")
-        return f"Error accessing calendar: {str(e)}"
+        return f"Error accessing calendar: {e}"
 
 @tool
 def add_event(date: str, time: str, duration: float, description: str):
@@ -97,7 +97,7 @@ def add_event(date: str, time: str, duration: float, description: str):
         ).execute()
         return f"Event '{description}' added successfully on {date} at {time} for {duration} minutes"
     except Exception as e:
-        return f"Error adding event: {str(e)}"
+        return f"Error adding event: {e}"
 
 @tool
 def remove_event(event_id: str):
@@ -111,7 +111,7 @@ def remove_event(event_id: str):
         calendar_service.events().delete(calendarId=calendar_id, eventId=event_id).execute()
         return f"Event with ID {event_id} removed successfully"
     except Exception as e:
-        return f"Error removing event: {str(e)}"
+        return f"Error removing event: {e}"
 
 @tool
 def reschedule_event(event_id: str, new_date: str, new_time: str):
@@ -122,7 +122,11 @@ def reschedule_event(event_id: str, new_date: str, new_time: str):
         new_date: The new date for the event (YYYY-MM-DD format)
         new_time: The new time for the event (HH:MM format)
     """
-    return "Event rescheduled"
+    try:
+        calendar_service.events().update(calendarId=calendar_id, eventId=event_id).execute()
+        return "Event rescheduled"
+    except Exception as e:
+        return f"Error rescheduling event: {e}"
 
 instructions = f"""
                 You are a helpful calendar scheduler. You are given a event date and you need to check if the date is available. 
