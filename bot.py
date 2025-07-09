@@ -114,17 +114,25 @@ def remove_event(event_id: str):
         return f"Error removing event: {e}"
 
 @tool
-def reschedule_event(event_id: str, new_date: str, new_time: str):
+def reschedule_event(event_id: str, new_date: str, new_time: str, new_duration: float):
     """Reschedule an existing event
     
     Args:
         event_id: The ID of the event to reschedule
         new_date: The new date for the event (YYYY-MM-DD format)
         new_time: The new time for the event (HH:MM format)
+        new_duration: The new duration for the event (in minutes)
     """
     try:
-        calendar_service.events().update(calendarId=calendar_id, eventId=event_id).execute()
-        return "Event rescheduled"
+        # Calculate end time
+        new_end_time = datetime.datetime.strptime(new_time, "%H:%M") + datetime.timedelta(minutes=new_duration)
+
+        # Call Google Calendar API to reschedule an event
+        calendar_service.events().update(calendarId=calendar_id, eventId=event_id, body={
+                'start': {'dateTime': f'{new_date}T{new_time}:00+08:00'},
+                'end': {'dateTime': f'{new_date}T{new_end_time.strftime("%H:%M")}:00+08:00'}
+            }).execute()
+        return f"Event rescheduled to {new_date} at {new_time} for {new_duration} minutes"
     except Exception as e:
         return f"Error rescheduling event: {e}"
 
