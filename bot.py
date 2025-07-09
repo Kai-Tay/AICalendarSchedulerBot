@@ -127,12 +127,16 @@ def reschedule_event(event_id: str, new_date: str, new_time: str, new_duration: 
         # Calculate end time
         new_end_time = datetime.datetime.strptime(new_time, "%H:%M") + datetime.timedelta(minutes=new_duration)
 
+        # Get the existing event to preserve its summary
+        existing_event = calendar_service.events().get(calendarId=calendar_id, eventId=event_id).execute()
+        
         # Call Google Calendar API to reschedule an event
         calendar_service.events().update(calendarId=calendar_id, eventId=event_id, body={
+                'summary': existing_event.get('summary', 'Rescheduled Event'),
                 'start': {'dateTime': f'{new_date}T{new_time}:00+08:00'},
                 'end': {'dateTime': f'{new_date}T{new_end_time.strftime("%H:%M")}:00+08:00'}
             }).execute()
-        return f"Event rescheduled to {new_date} at {new_time} for {new_duration} minutes"
+        return f"Event '{existing_event.get('summary', 'Rescheduled Event')}' rescheduled to {new_date} at {new_time} for {new_duration} minutes"
     except Exception as e:
         return f"Error rescheduling event: {e}"
 
