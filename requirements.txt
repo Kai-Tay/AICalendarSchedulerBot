@@ -1,7 +1,11 @@
-python-telegram-bot==20.3
-python-telegram-bot[job-queue]==20.3
-datetime
-boto3
+python-telegram-bot
+python-telegram-bot[job-queue]
 python-dotenv
-nltk
 requests
+langchain-core
+langchain-google-genai
+google-auth
+google-auth-oauthlib
+google-auth-httplib2
+google-api-python-client
+google-ai-generativelanguage

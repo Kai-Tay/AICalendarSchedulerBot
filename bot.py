@@ -2,17 +2,23 @@ import logging
 from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
 from dotenv import load_dotenv
-import requests
-from google import genai
-from google.genai import types
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 import datetime
-
+from langchain_core.tools import tool
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage
 import os
 
 # Load environment variables
 load_dotenv()
+
+# Initialize LangChain model
+model = ChatGoogleGenerativeAI(
+    model="gemini-2.0-flash", 
+    google_api_key=os.getenv("GOOGLE_API_KEY"),
+    temperature=0.2
+)
 
 # Initialize Google Calendar API
 creds = service_account.Credentials.from_service_account_file(
@@ -24,20 +30,21 @@ calendar_id = os.getenv("CALENDER_ID")
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
+    level=logging.WARNING
 )
 
-# Initialize Gemini
-gemini = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
-
 # Tools
+@tool
 def get_current_date():
+    """Get the current date and time in Singapore"""
     # Get current date in Singapore, run this every time
     current_date = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=8))).strftime("%Y-%m-%d")
     current_time = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=8))).strftime("%H:%M")
-    return current_date, current_time
+    return f"Current date: {current_date}, Current time: {current_time}"
 
+@tool
 def get_events():
+    """Get all events from the calendar to ensure that the date is available before adding/deleting/rescheduling events"""
     try:
         # Get current time in ISO format for filtering future events
         now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=8))).isoformat()
@@ -56,34 +63,65 @@ def get_events():
             for event in events['items']:
                 summary = event.get('summary', 'No title')
                 start = event.get('start', {}).get('dateTime', event.get('start', {}).get('date', 'No date'))
-                event_list.append(f"- {summary} on {start}")
-
+                id = event.get('id', 'No id')
+                event_list.append(f"- {summary} on {start}, event_id: {id}")
             return f"Upcoming events:\n" + "\n".join(event_list)
+        else:
+            return "No upcoming events found."
     except Exception as e:
         print(f"Error getting events: {e}")
         return f"Error accessing calendar: {str(e)}"
 
-def add_event(date: str, time: str, description: str):
-    # Call Google Calendar API to add an event
-    event = calendar_service.events().insert(
-        calendarId=calendar_id,
-        body={
-            'summary': description,
-            'start': {'dateTime': f'{date}T{time}:00+08:00'},
-            'end': {'dateTime': f'{date}T{time}:00+08:00'}
-        }
-    ).execute()
-    # Return the event
-    return "Event added"
+@tool
+def add_event(date: str, time: str, duration: float, description: str):
+    """Add a new event to the calendar, calculate end time based off duration.
+    
+    Args:
+        date: The date of the event (YYYY-MM-DD format)
+        time: The time of the event (HH:MM format)
+        duration: The duration of the event (in minutes)
+        description: Description of the event
+    """
+    try:
+        # Calculate end time
+        end_time = datetime.datetime.strptime(time, "%H:%M") + datetime.timedelta(minutes=duration)
 
+        # Call Google Calendar API to add an event
+        event = calendar_service.events().insert(
+            calendarId=calendar_id,
+            body={
+                'summary': description,
+                'start': {'dateTime': f'{date}T{time}:00+08:00'},
+                'end': {'dateTime': f'{date}T{end_time.strftime("%H:%M")}:00+08:00'}
+            }
+        ).execute()
+        return f"Event '{description}' added successfully on {date} at {time} for {duration} minutes"
+    except Exception as e:
+        return f"Error adding event: {str(e)}"
+
+@tool
 def remove_event(event_id: str):
-    # Call Google Calendar API to remove an event
-    # Return the event
-    return "Event removed"
+    """Remove an event from the calendar
+    
+    Args:
+        event_id: The ID of the event to remove
+    """
+    try:
+        # Call Google Calendar API to remove an event
+        calendar_service.events().delete(calendarId=calendar_id, eventId=event_id).execute()
+        return f"Event with ID {event_id} removed successfully"
+    except Exception as e:
+        return f"Error removing event: {str(e)}"
 
+@tool
 def reschedule_event(event_id: str, new_date: str, new_time: str):
-    # Call Google Calendar API to reschedule an event
-    # Return the event
+    """Reschedule an existing event
+    
+    Args:
+        event_id: The ID of the event to reschedule
+        new_date: The new date for the event (YYYY-MM-DD format)
+        new_time: The new time for the event (HH:MM format)
+    """
     return "Event rescheduled"
 
 instructions = f"""
@@ -105,225 +143,82 @@ instructions = f"""
                 If I am rescheduling the event, you need to ask me for the new date and time.
                 """
 
-# Define function schemas for Gemini tools
-function_declarations = [
-    {
-        "name": "get_current_date",
-        "description": "Get the current date and time in Singapore",
-        "parameters": {
-            "type": "object",
-            "properties": {},
-        }
-    },
-    {
-        "name": "get_events",
-        "description": "Get all events from the calendar to ensure that the date is available before adding/deleting/rescheduling events",
-        "parameters": {
-            "type": "object",
-            "properties": {},
-        }
-    },
-    {
-        "name": "add_event",
-        "description": "Add a new event to the calendar",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "date": {
-                    "type": "string",
-                    "description": "The date of the event (YYYY-MM-DD format)"
-                },
-                "time": {
-                    "type": "string", 
-                    "description": "The time of the event (HH:MM format)"
-                },
-                "description": {
-                    "type": "string",
-                    "description": "Description of the event"
-                }
-            },
-            "required": ["date", "time", "description"]
-        }
-    },
-    {
-        "name": "remove_event",
-        "description": "Remove an event from the calendar",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "event_id": {
-                    "type": "string",
-                    "description": "The ID of the event to remove"
-                }
-            },
-            "required": ["event_id"]
-        }
-    },
-    {
-        "name": "reschedule_event",
-        "description": "Reschedule an existing event",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "event_id": {
-                    "type": "string",
-                    "description": "The ID of the event to reschedule"
-                },
-                "new_date": {
-                    "type": "string",
-                    "description": "The new date for the event (YYYY-MM-DD format)"
-                },
-                "new_time": {
-                    "type": "string",
-                    "description": "The new time for the event (HH:MM format)"
-                }
-            },
-            "required": ["event_id", "new_date", "new_time"]
-        }
-    }
-]
-
-tools = types.Tool(function_declarations=function_declarations)
-config = types.GenerateContentConfig(tools=[tools], system_instruction=instructions)
+# Bind tools to the model
+tools_list = [get_current_date, get_events, add_event, remove_event, reschedule_event]
+model_with_tools = model.bind_tools(tools_list)
 
 async def schedule_event(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.id != 716853175:
         await context.bot.send_message(chat_id=update.effective_chat.id, text="You are not Kai Sheng.. wya doing here.... 😡")
+        return
 
     # Get user message
     user_message = update.message.text
-    context.user_data.setdefault('history', []).append({"role": "user", "parts": [{"text": user_message}]})
+    
+    # Initialize conversation history if not exists
+    if 'messages' not in context.user_data:
+        context.user_data['messages'] = [SystemMessage(content=instructions)]
+    
+    # Add user message to history
+    context.user_data['messages'].append(HumanMessage(content=user_message))
 
-    # Generate response
-    response = gemini.models.generate_content(
-            model="gemini-2.0-flash",
-            contents=context.user_data['history'],
-            config=config
-        )
-    
-    assistant = response.text
-    
-    # Handle function calls if present
-    if response.candidates and response.candidates[0].content.parts:
-        parts = response.candidates[0].content.parts
-        function_calls = []
-        text_parts = []
-        print("Parts")
-        print(parts)
-        for part in parts:
-            if hasattr(part, 'function_call') and part.function_call is not None:
-                function_calls.append(part.function_call)
-            if hasattr(part, 'text') and part.text is not None:
-                text_parts.append(part.text)
-                
-        print("Function calls", function_calls)
-        print("Text parts", text_parts)
-        # Execute function calls
-        if function_calls:
-            for func_call in function_calls:
-                func_name = func_call.name
-                args = func_call.args
-                print(f"Function name: {func_name}, args: {args}")
-                
-                if func_name == "get_current_date":
-                    current_date, current_time = get_current_date()
-                    result = f"Current date: {current_date}, Current time: {current_time}"
-                elif func_name == "get_events":
-                    result = get_events()
-                elif func_name == "add_event":
-                    result = add_event(args.get("date"), args.get("time"), args.get("description"))
-                elif func_name == "remove_event":
-                    result = remove_event(args.get("event_id"))
-                elif func_name == "reschedule_event":
-                    result = reschedule_event(args.get("event_id"), args.get("new_date"), args.get("new_time"))
-                else:
-                    result = "Unknown function"
-                
-                # Add function result to history
-                context.user_data['history'].append({
-                    "role": "model",
-                    "parts": [{"text": result}]
-                })
-            print("History", context.user_data['history'])
-            
-            # Keep calling Gemini until it stops calling functions
-            max_iterations = 5  # Prevent infinite loops
-            iteration = 0
-            
-            while iteration < max_iterations:
-                iteration += 1
-                print(f"Function call iteration {iteration}")
-                
-                # Make another API call to get Gemini's response after function execution
-                response = gemini.models.generate_content(
-                    model="gemini-2.0-flash",
-                    contents=context.user_data['history'],
-                    config=config
-                )
-                
-                # Check if there are more function calls
-                if response.candidates and response.candidates[0].content.parts:
-                    parts = response.candidates[0].content.parts
-                    new_function_calls = []
-                    new_text_parts = []
-                    
-                    for part in parts:
-                        if hasattr(part, 'function_call') and part.function_call is not None:
-                            new_function_calls.append(part.function_call)
-                        if hasattr(part, 'text') and part.text is not None:
-                            new_text_parts.append(part.text)
-                    
-                    print(f"New function calls: {new_function_calls}")
-                    print(f"New text parts: {new_text_parts}")
-                    
-                    if new_function_calls:
-                        # Execute the new function calls
-                        for func_call in new_function_calls:
-                            func_name = func_call.name
-                            args = func_call.args
-                            print(f"Executing function: {func_name}, args: {args}")
-                            
-                            if func_name == "get_current_date":
-                                current_date, current_time = get_current_date()
-                                result = f"Current date: {current_date}, Current time: {current_time}"
-                            elif func_name == "get_events":
-                                result = get_events()
-                            elif func_name == "add_event":
-                                result = add_event(args.get("date"), args.get("time"), args.get("description"))
-                            elif func_name == "remove_event":
-                                result = remove_event(args.get("event_id"))
-                            elif func_name == "reschedule_event":
-                                result = reschedule_event(args.get("event_id"), args.get("new_date"), args.get("new_time"))
-                            else:
-                                result = "Unknown function"
-                            
-                            # Add function result to history
-                            context.user_data['history'].append({
-                                "role": "model",
-                                "parts": [{"text": result}]
-                            })
-                        # Continue the loop to check for more function calls
-                    else:
-                        # No more function calls, we have the final response
-                        assistant = " ".join(new_text_parts) if new_text_parts else response.text
-                        break
-                else:
-                    # No valid response parts
-                    assistant = response.text
-                    break
-            
-            if iteration >= max_iterations:
-                print("Max iterations reached, stopping function call loop")
-                assistant = "I've processed your request, but it took longer than expected."
-    
-    if not assistant or assistant.strip() == "":
-        assistant = "I'm sorry, I couldn't generate a response. Please try again."
-    
-    context.user_data['history'].append({"role": "assistant", "parts": [{"text": assistant}]})
-
-    # Send response
-    await update.message.reply_text(assistant)
+    try:
+        # Generate response with tools
+        response = model_with_tools.invoke(context.user_data['messages'])
         
+        # Handle tool calls if present
+        while response.tool_calls:
+            # Add AI message with tool calls to history
+            context.user_data['messages'].append(response)
+            
+            # Execute each tool call
+            for tool_call in response.tool_calls:
+                tool_name = tool_call['name']
+                tool_args = tool_call['args']
+                
+                # Find and execute the tool
+                tool_result = None
+                for tool in tools_list:
+                    if tool.name == tool_name:
+                        try:
+                            if tool_name == "get_current_date":
+                                tool_result = tool.invoke({})
+                            elif tool_name == "get_events":
+                                tool_result = tool.invoke({})
+                            elif tool_name == "add_event":
+                                tool_result = tool.invoke(tool_args)
+                            elif tool_name == "remove_event":
+                                tool_result = tool.invoke(tool_args)
+                            elif tool_name == "reschedule_event":
+                                tool_result = tool.invoke(tool_args)
+                        except Exception as e:
+                            tool_result = f"Error executing {tool_name}: {str(e)}"
+                        break
+                
+                if tool_result is None:
+                    tool_result = f"Unknown tool: {tool_name}"
+                
+                # Add tool result to messages
+                context.user_data['messages'].append(
+                    ToolMessage(content=str(tool_result), tool_call_id=tool_call['id'])
+                )
+            
+            # Get next response from model
+            response = model_with_tools.invoke(context.user_data['messages'])
+        
+        # Add final AI response to history
+        context.user_data['messages'].append(response)
+        
+        # Send response to user
+        assistant_reply = response.content
+        if not assistant_reply or assistant_reply.strip() == "":
+            assistant_reply = "I'm sorry, I couldn't generate a response. Please try again."
+        
+        await update.message.reply_text(assistant_reply)
+        
+    except Exception as e:
+        print(f"Error in schedule_event: {e}")
+        await update.message.reply_text("Sorry, I encountered an error. Please try again.")
 
 def main():
 
@@ -333,6 +228,7 @@ def main():
     schedule_handler = MessageHandler(filters.TEXT & ~filters.COMMAND, schedule_event)
     application.add_handler(schedule_handler)
 
+    # Polls every 5 seconds
     application.run_polling(poll_interval=5.0)
 
 if __name__ == '__main__':

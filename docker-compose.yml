@@ -1,0 +1,9 @@
+services:
+  aischedulerbot:
+    image: aischedulerbot
+    env_file:
+      - .env
+    restart: always
+    volumes:
+      - ./service-account.json:/app/service-account.json
+    command: python bot.py
