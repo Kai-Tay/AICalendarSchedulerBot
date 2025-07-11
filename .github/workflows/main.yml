@@ -40,4 +40,4 @@ jobs:
 
       - name: Remove old images
         run: |
-          ssh ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "docker rmi $(docker images -q)"
+          ssh ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "docker images -q | xargs -r docker rmi && docker image prune -f"
