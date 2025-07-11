@@ -254,7 +254,7 @@ def main():
     application.add_handler(schedule_handler)
 
     # Polls every 5 seconds
-    application.run_polling(poll_interval=5.0)
+    application.run_polling(poll_interval=5.0, timeout=100)
 
 if __name__ == '__main__':
     main()
