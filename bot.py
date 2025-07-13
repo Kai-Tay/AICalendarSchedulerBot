@@ -43,6 +43,15 @@ def get_current_date():
     return f"Current date: {current_date}, Current time: {current_time}"
 
 @tool
+def get_calendars():
+    """Get all calendars from the account to decide which calendar to use"""
+    calendars = calendar_service.calendarList().list().execute()
+    calendar_list = []
+    for calendar in calendars['items']:
+        calendar_list.append(f"- {calendar['id']}: {calendar['summary']}")
+    return f"Calendars: {calendar_list}"
+
+@tool
 def get_events():
     """Get all events from the calendar to ensure that the date is available before adding/deleting/rescheduling events"""
     try:
@@ -150,10 +159,13 @@ instructions = f"""
                 
                 You should not be asking me for the date and time or event ID, you should be using the tools to get the date and time or event ID.
 
+                You should use the get_calendars tool to get all calendars from the account to decide which calendar is appropriate to use for the given event. Else, use the default calendar_id.
+
                 If it clashes with another event, you need to ask me if I would like to schedule it on a different date or change the current date or just add it to the calendar.
 
                 Tools:
                 - get_current_date: Get the current date and time
+                - get_calendars: Get all calendars from the account to decide which calendar to use
                 - get_events: Get all events from the calendar to get event ID and ensure that the date is available 
                 - add_event: Add a new event to the calendar
                 - remove_event: Remove an event from the calendar
@@ -165,7 +177,7 @@ instructions = f"""
                 """
 
 # Bind tools to the model
-tools_list = [get_current_date, get_events, add_event, remove_event, reschedule_event]
+tools_list = [get_current_date, get_events, add_event, remove_event, reschedule_event, get_calendars]
 model_with_tools = model.bind_tools(tools_list)
 
 async def schedule_event(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -216,6 +228,8 @@ async def schedule_event(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                 tool_result = tool.invoke(tool_args)
                             elif tool_name == "reschedule_event":
                                 tool_result = tool.invoke(tool_args)
+                            elif tool_name == "get_calendars":
+                                tool_result = tool.invoke({})
                         except Exception as e:
                             tool_result = f"Error executing {tool_name}: {str(e)}"
                         break
