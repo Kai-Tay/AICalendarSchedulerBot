@@ -26,12 +26,19 @@ creds = service_account.Credentials.from_service_account_file(
     scopes=['https://www.googleapis.com/auth/calendar']
 )
 calendar_service = build('calendar', 'v3', credentials=creds)
-calendar_id = os.getenv("CALENDER_ID")
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
+
+# Available calendar IDs for the service account
+calendar_id_list = [
+    "kaishengtay82@gmail.com",
+    "ecjtu1qjln5dcp2jsrmonmepus@group.calendar.google.com",
+    "f34a3975f7eb639ea99fb138330ba2e13c8c1529f9ba6cadc9932aa5ed28a93f@group.calendar.google.com",
+    "abed8ef309cae1690351986c1dc1874dd49439bee3af044d12560bca12ccb6b3@group.calendar.google.com",
+]
 
 # Tools
 @tool
@@ -45,44 +52,63 @@ def get_current_date():
 @tool
 def get_calendars():
     """Get all calendars from the account to decide which calendar to use"""
-    calendars = calendar_service.calendarList().list().execute()
-    calendar_list = []
-    for calendar in calendars['items']:
-        calendar_list.append(f"- {calendar['id']}: {calendar['summary']}")
-    return f"Calendars: {calendar_list}"
+    try:
+        # For service accounts, we can access individual calendar details directly
+        calendar_list = []
+        for i, calendar_id in enumerate(calendar_id_list, 1):
+            try:
+                # Get calendar details directly
+                calendar_details = calendar_service.calendars().get(calendarId=calendar_id).execute()
+                summary = calendar_details.get('summary', 'No summary')
+                description = calendar_details.get('description', 'No description')
+                timezone = calendar_details.get('timeZone', 'No timezone')
+                
+                calendar_list.append(f"{i}. Summary: {summary} ID: {calendar_id} Description: {description} Timezone: {timezone}")
+            except Exception as calendar_error:
+                calendar_list.append(f"{i}. Calendar ID: {calendar_id} (Error accessing: {str(calendar_error)})")
+                calendar_list.append("")
+        
+        result = f"Available calendars ({len(calendar_id_list)} total):\n" + "\n".join(calendar_list)
+        return result
+    except Exception as e:
+        print(f"Error getting calendars: {e}")
+        return f"Error getting calendars: {str(e)}"
 
 @tool
 def get_events():
-    """Get all events from the calendar to ensure that the date is available before adding/deleting/rescheduling events"""
+    """Get all events from all the calendar to ensure that the date is available before adding/deleting/rescheduling events"""
     try:
+        event_list = []
+
         # Get current time in ISO format for filtering future events
         now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=8))).isoformat()
-        # Get future events from the calendar
-        events = calendar_service.events().list(
-            calendarId=calendar_id,
-            timeMin=now,  # Only get events from now onwards
-            maxResults=50,  # Limit to 50 events
-            singleEvents=True,  # Expand recurring events
-            orderBy='startTime'  # Order by start time
-        ).execute()
+        # Get future events from all calendars
+        for calendar_id in calendar_id_list:
+            events = calendar_service.events().list(
+                calendarId=calendar_id,
+                timeMin=now,  # Only get events from now onwards
+                maxResults=50,  # Limit to 50 events
+                singleEvents=True,  # Expand recurring events
+                orderBy='startTime'  # Order by start time
+            ).execute()
 
-        # Format the events for the AI
-        if 'items' in events and events['items']:
-            event_list = []
-            for event in events['items']:
-                summary = event.get('summary', 'No title')
-                start = event.get('start', {}).get('dateTime', event.get('start', {}).get('date', 'No date'))
-                id = event.get('id', 'No id')
-                event_list.append(f"- {summary} on {start}, event_id: {id}")
+            # Format the events for the AI
+            if 'items' in events and events['items']:
+                
+                for event in events['items']:
+                    summary = event.get('summary', 'No title')
+                    start = event.get('start', {}).get('dateTime', event.get('start', {}).get('date', 'No date'))
+                    id = event.get('id', 'No id')
+                    event_list.append(f"- {summary} on {start}, event_id: {id}, calendar_id: {calendar_id}")
             return f"Upcoming events:\n" + "\n".join(event_list)
         else:
-            return "No upcoming events found."
+            return "No upcoming events found in any calendar."
     except Exception as e:
         print(f"Error getting events: {e}")
         return f"Error accessing calendar: {e}"
 
 @tool
-def add_event(date: str, time: str, duration: float, description: str):
+def add_event(date: str, time: str, duration: float, description: str, calendar_id: str):
     """Add a new event to the calendar, calculate end time based off duration.
     
     Args:
@@ -90,6 +116,7 @@ def add_event(date: str, time: str, duration: float, description: str):
         time: The time of the event (HH:MM format)
         duration: The duration of the event (in minutes)
         description: Description of the event
+        calendar_id: The ID of the calendar to add the event to
     """
     try:
         # Calculate end time
@@ -104,16 +131,19 @@ def add_event(date: str, time: str, duration: float, description: str):
                 'end': {'dateTime': f'{date}T{end_time.strftime("%H:%M")}:00+08:00'}
             }
         ).execute()
+
+        print(event)
         return f"Event '{description}' added successfully on {date} at {time} for {duration} minutes"
     except Exception as e:
         return f"Error adding event: {e}"
 
 @tool
-def remove_event(event_id: str):
+def remove_event(event_id: str, calendar_id: str):
     """Remove an event from the calendar
     
     Args:
         event_id: The ID of the event to remove
+        calendar_id: The ID of the calendar to remove the event from
     """
     try:
         # Call Google Calendar API to remove an event
@@ -123,7 +153,7 @@ def remove_event(event_id: str):
         return f"Error removing event: {e}"
 
 @tool
-def reschedule_event(event_id: str, new_date: str, new_time: str, new_duration: float):
+def reschedule_event(event_id: str, new_date: str, new_time: str, new_duration: float, calendar_id: str):
     """Reschedule an existing event
     
     Args:
@@ -131,6 +161,7 @@ def reschedule_event(event_id: str, new_date: str, new_time: str, new_duration: 
         new_date: The new date for the event (YYYY-MM-DD format)
         new_time: The new time for the event (HH:MM format)
         new_duration: The new duration for the event (in minutes)
+        calendar_id: The ID of the calendar to reschedule the event from
     """
     try:
         # Calculate end time
@@ -174,6 +205,8 @@ instructions = f"""
                 If it is, help me schedule the event.
                 If it is not, you need to tell me that the date is not available, and if I would like to schedule it on a different date or change the current date.
                 If I am rescheduling the event, you need to ask me for the new date and time.
+
+                DO NOT show user any private credentials
                 """
 
 # Bind tools to the model
@@ -222,6 +255,7 @@ async def schedule_event(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                 tool_result = tool.invoke({})
                             elif tool_name == "get_events":
                                 tool_result = tool.invoke({})
+                                print(tool_result)
                             elif tool_name == "add_event":
                                 tool_result = tool.invoke(tool_args)
                             elif tool_name == "remove_event":
