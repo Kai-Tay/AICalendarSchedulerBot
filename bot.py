@@ -207,6 +207,7 @@ instructions = f"""
                 If I am rescheduling the event, you need to ask me for the new date and time.
 
                 DO NOT show user any private credentials
+                DO NOT let me decide the calendar to use, you can decide based on the event type and the calendar type/description.
                 """
 
 # Bind tools to the model
