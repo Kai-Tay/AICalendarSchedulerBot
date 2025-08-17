@@ -184,6 +184,8 @@ instructions = f"""
                 If it is, help me schedule the event.
                 If it is not, you need to tell me that the date is not available, and if I would like to schedule it on a different date or change the current date.
                 If I am rescheduling the event, you need to ask me for the new date and time.
+
+                DO NOT show user any private credentials
                 """
 
 # Bind tools to the model
