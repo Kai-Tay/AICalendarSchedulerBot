@@ -119,6 +119,10 @@ def add_event(date: str, time: str, duration: float, description: str, calendar_
         calendar_id: The ID of the calendar to add the event to
     """
     try:
+        # Validate tool arguments before execution
+        if not date or not time or not duration or not description or not calendar_id:
+            return "Error: Missing required arguments for add_event" + str(date) + str(time) + str(duration) + str(description) + str(calendar_id)
+        
         # Calculate end time
         end_time = datetime.datetime.strptime(time, "%H:%M") + datetime.timedelta(minutes=duration)
 
@@ -191,8 +195,6 @@ instructions = f"""
                 You should not be asking me for the date and time or event ID, you should be using the tools to get the date and time or event ID.
 
                 You should use the get_calendars tool to get all calendars from the account to decide which calendar is appropriate to use for the given event. Else, use the default calendar_id.
-                
-                If I am adding a new event, called the get_calendars tool to get all calendars from the account to decide which calendar is appropriate to use for the given event before calling the add_event tool.
                 
                 If it clashes with another event, you need to ask me if I would like to schedule it on a different date or change the current date or just add it to the calendar.
 
