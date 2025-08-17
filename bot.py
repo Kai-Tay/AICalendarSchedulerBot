@@ -191,7 +191,9 @@ instructions = f"""
                 You should not be asking me for the date and time or event ID, you should be using the tools to get the date and time or event ID.
 
                 You should use the get_calendars tool to get all calendars from the account to decide which calendar is appropriate to use for the given event. Else, use the default calendar_id.
-
+                
+                If I am adding a new event, called the get_calendars tool to get all calendars from the account to decide which calendar is appropriate to use for the given event before calling the add_event tool.
+                
                 If it clashes with another event, you need to ask me if I would like to schedule it on a different date or change the current date or just add it to the calendar.
 
                 Tools:
@@ -207,7 +209,6 @@ instructions = f"""
                 If I am rescheduling the event, you need to ask me for the new date and time.
 
                 DO NOT show user any private credentials
-                DO NOT let me decide the calendar to use, you can decide based on the event type and the calendar type/description.
                 """
 
 # Bind tools to the model
